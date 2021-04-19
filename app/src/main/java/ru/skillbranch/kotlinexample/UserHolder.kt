@@ -1,7 +1,6 @@
 package ru.skillbranch.kotlinexample
 
 import androidx.annotation.VisibleForTesting
-import ru.skillbranch.kotlinexample.extensions.normalizePhone
 
 object UserHolder {
     private val map = mutableMapOf<String, User>()
