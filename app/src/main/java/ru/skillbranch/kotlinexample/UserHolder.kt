@@ -24,7 +24,7 @@ object UserHolder {
             if (map[user.login] == null) {
                 map[user.login] = user
             } else {
-                throw IllegalArgumentException("A user with this email already exists")
+                throw IllegalArgumentException("A user with this ${if (email.isNullOrBlank()) "email" else "phone"} already exists")
             }
         }
 
