@@ -1,10 +1,16 @@
 package ru.skillbranch.skillarticles.viewmodels
 
+import android.os.Bundle
+import android.util.Log
 import androidx.annotation.UiThread
 import androidx.annotation.VisibleForTesting
+import androidx.core.os.bundleOf
 import androidx.lifecycle.*
+import androidx.savedstate.SavedStateRegistryOwner
+import java.io.Serializable
 
-abstract class BaseViewModel<T>(initState: T) : ViewModel() {
+abstract class BaseViewModel<T>(initState: T, private val savedStateHandle: SavedStateHandle) :
+    ViewModel() where T : VMState {
     @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
     val notifications = MutableLiveData<Event<Notify>>()
 
@@ -15,7 +21,12 @@ abstract class BaseViewModel<T>(initState: T) : ViewModel() {
      */
     @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
     val state: MediatorLiveData<T> = MediatorLiveData<T>().apply {
-        value = initState
+        val restoredState = savedStateHandle.get<Any>("state")?.let {
+            if (it is Bundle) initState.fromBundle(it) as? T
+            else it as T
+        }
+        Log.e("BaseViewModel", "handle restore state")
+        value = restoredState ?: initState
     }
 
     /***
@@ -55,9 +66,22 @@ abstract class BaseViewModel<T>(initState: T) : ViewModel() {
     }
 
     /***
-     * более компактная форма записи observe() метода LiveData вызывает лямбда выражение обработчик
-     * только в том случае если уведомление не было уже обработанно ранее,
-     * реализует данное поведение с помощью EventObserver
+     * более компактная форма записи observe() метода LiveData принимает последним аргумент лямбда
+     * выражение обрабатывающее изменение текущего стостояния
+     */
+    fun <D> observeSubState(
+        owner: LifecycleOwner,
+        transform: (T) -> D,
+        onChanged: (substate: D) -> Unit
+    ) {
+        state
+            .map(transform) // трансформируем весь стейт в необходимую модель substate
+            .distinctUntilChanged() //отфильтровываем и пропускаем дальше только, если значение изменилось
+            .observe(owner, Observer { onChanged(it!!) })
+    }
+
+    /***
+     * вспомогательная функция, позволяющая наблюдать за изменениями части стейта ViewModel
      */
     fun observeNotifications(owner: LifecycleOwner, onNotify: (notification: Notify) -> Unit) {
         notifications.observe(owner, EventObserver { onNotify(it) })
@@ -69,20 +93,31 @@ abstract class BaseViewModel<T>(initState: T) : ViewModel() {
      * изменяет его и возвращает модифицированное состояние, которое устанавливается как текущее
      */
     protected fun <S> subscribeOnDataSource(
-            source: LiveData<S>,
-            onChanged: (newValue: S, currentState: T) -> T?
+        source: LiveData<S>,
+        onChanged: (newValue: S, currentState: T) -> T?
     ) {
         state.addSource(source) {
             state.value = onChanged(it, currentState) ?: return@addSource
         }
     }
 
+    /*
+     * сохранение стейта в bundle
+     */
+    fun saveState() {
+        savedStateHandle.set("state", currentState)
+    }
 }
 
-class ViewModelFactory(private val params: String) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+class ViewModelFactory(owner: SavedStateRegistryOwner, private val params: String) :
+    AbstractSavedStateViewModelFactory(owner, bundleOf()) {
+    override fun <T : ViewModel?> create(
+        key: String,
+        modelClass: Class<T>,
+        handle: SavedStateHandle
+    ): T {
         if (modelClass.isAssignableFrom(ArticleViewModel::class.java)) {
-            return ArticleViewModel(params) as T
+            return ArticleViewModel(params, handle) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -124,14 +159,19 @@ sealed class Notify(val message: String) {
     data class TextMessage(val msg: String) : Notify(msg)
 
     data class ActionMessage(
-            val msg: String,
-            val actionLabel: String,
-            val actionHandler: (() -> Unit)
+        val msg: String,
+        val actionLabel: String,
+        val actionHandler: (() -> Unit)
     ) : Notify(msg)
 
     data class ErrorMessage(
-            val msg: String,
-            val errLabel: String?,
-            val errHandler: (() -> Unit)?
+        val msg: String,
+        val errLabel: String?,
+        val errHandler: (() -> Unit)?
     ) : Notify(msg)
+}
+
+interface VMState : Serializable {
+    fun toBundle(): Bundle
+    fun fromBundle(bundle: Bundle): VMState?
 }
