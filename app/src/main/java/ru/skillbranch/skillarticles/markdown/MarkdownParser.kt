@@ -31,7 +31,7 @@ object MarkdownParser {
     private const val RULE_GROUP = "(^[-_*]{3}$)"
     private const val INLINE_GROUP = "((?<!`)`[^`\\s].*?[^`\\s]?`(?!`))"
     private const val LINK_GROUP = "(\\[[^\\[\\]]*?]\\(.+?\\)|^\\[*?]\\(.*?\\))"
-    private const val IMAGE_GROUP = "(\\!\\[[^\\[\\]]*?]\\(.+?\\)|^\\[*?]\\(.*?\\))"
+    private const val IMAGE_GROUP = "(^!\\[[^\\[\\]]*?\\]\\(.*?\\)$)"
     private const val ORDERED_LIST_ITEM_GROUP = "(^\\d+[.] .+$)"
     private const val MULTILINE_GROUP = "(^`{3}([\\s\\S]*?)`{3}$)"
 
@@ -159,7 +159,7 @@ object MarkdownParser {
 
                 //BOLD
                 5 -> {
-                    //text without "+*{}**"
+                    //text without "**{}**"
                     text = string.subSequence(startIndex.plus(2), endIndex.minus(2))
                     val subs = findElements(text)
                     val element = Element.Bold(text, subs)
@@ -209,9 +209,9 @@ object MarkdownParser {
                 10 -> {
                     //full text for regex
                     text = string.subSequence(startIndex, endIndex)
-                    val (alt: String, link: String, _, title: String) = "!\\[(.*)]\\(([^ ]*)( [\"](.*)[\"])?\\)".toRegex()
+                    val (alt: String, link: String, title: String) = "^!\\[([^\\[\\]]*?)?]\\((\\S*)[ )]?\"?(.*?)?\"?\\)$".toRegex()
                         .find(text)!!.destructured
-                    val element = Element.Image(link, if (alt.isEmpty()) null else alt, title)
+                    val element = Element.Image(link, if (alt.isBlank()) null else alt, title)
                     parents.add(element)
                     lastStartIndex = endIndex
                 }
@@ -305,7 +305,7 @@ sealed class Element {
     ) : Element()
 
     data class Link(
-        val link: CharSequence,
+        val link: String,
         override val text: CharSequence, //for insert span
         override val elements: List<Element> = emptyList()
     ) : Element()
